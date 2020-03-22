@@ -13,10 +13,30 @@ import java.util.concurrent.ConcurrentHashMap;
  * For now, this is a stub catalog that must be populated with tables by a
  * user program before it can be used -- eventually, this should be converted
  * to a catalog that reads a catalog table from disk.
- * 
+ *
  * @Threadsafe
  */
 public class Catalog {
+
+    private final ConcurrentHashMap<Integer,Table> hashTable;
+
+    private static class Table{
+        private static final long serialVersionUID = 1L;
+
+        public final DbFile dbFile;
+        public final String tableName;
+        public final String pk;
+
+        public Table(DbFile file,String name,String pkeyField){
+            dbFile = file;
+            tableName = name;
+            pk = pkeyField;
+        }
+
+        public String toString(){
+            return tableName + "(" + dbFile.getId() + ":" + pk +")";
+        }
+    }
 
     /**
      * Constructor.
@@ -24,6 +44,7 @@ public class Catalog {
      */
     public Catalog() {
         // some code goes here
+        hashTable = new ConcurrentHashMap<Integer,Table>();
     }
 
     /**
@@ -37,6 +58,8 @@ public class Catalog {
      */
     public void addTable(DbFile file, String name, String pkeyField) {
         // some code goes here
+        Table t = new Table(file,name,pkeyField);
+        hashTable.put(file.getId(),t);
     }
 
     public void addTable(DbFile file, String name) {
@@ -60,7 +83,17 @@ public class Catalog {
      */
     public int getTableId(String name) throws NoSuchElementException {
         // some code goes here
-        return 0;
+        Integer res = hashTable.searchValues(1,value->{
+            if(value.tableName.equals(name)){
+                return value.dbFile.getId();
+            }
+            return null;
+        });
+        if(res != null){
+            return res.intValue();
+        }else{
+            throw new NoSuchElementException("not found id for table " + name);
+        }
     }
 
     /**
@@ -71,7 +104,12 @@ public class Catalog {
      */
     public TupleDesc getTupleDesc(int tableid) throws NoSuchElementException {
         // some code goes here
-        return null;
+        Table t = hashTable.getOrDefault(tableid,null);
+        if(t != null){
+            return t.dbFile.getTupleDesc();
+        }else{
+            throw new NoSuchElementException("not found tuple desc for table " + tableid);
+        }
     }
 
     /**
@@ -82,29 +120,45 @@ public class Catalog {
      */
     public DbFile getDatabaseFile(int tableid) throws NoSuchElementException {
         // some code goes here
-        return null;
+        Table t = hashTable.getOrDefault(tableid,null);
+        if(t != null){
+            return t.dbFile;
+        }else{
+            throw new NoSuchElementException("not found db file for table " + tableid);
+        }
     }
 
     public String getPrimaryKey(int tableid) {
         // some code goes here
-        return null;
+        Table t = hashTable.getOrDefault(tableid,null);
+        if(t != null){
+            return t.pk;
+        }else{
+            throw new NoSuchElementException("not found primary key for table " + tableid);
+        }
     }
 
     public Iterator<Integer> tableIdIterator() {
         // some code goes here
-        return null;
+        return hashTable.keySet().iterator();
     }
 
     public String getTableName(int id) {
         // some code goes here
-        return null;
+        Table t = hashTable.getOrDefault(id,null);
+        if(t != null){
+            return t.tableName;
+        }else{
+            throw new NoSuchElementException("not found name for table " + id);
+        }
     }
-    
+
     /** Delete all tables from the catalog */
     public void clear() {
         // some code goes here
+        hashTable.clear();
     }
-    
+
     /**
      * Reads the schema from a file and creates the appropriate tables in the database.
      * @param catalogFile
@@ -114,7 +168,7 @@ public class Catalog {
         String baseFolder=new File(new File(catalogFile).getAbsolutePath()).getParent();
         try {
             BufferedReader br = new BufferedReader(new FileReader(new File(catalogFile)));
-            
+
             while ((line = br.readLine()) != null) {
                 //assume line is of the format name (field type, field type, ...)
                 String name = line.substring(0, line.indexOf("(")).trim();
